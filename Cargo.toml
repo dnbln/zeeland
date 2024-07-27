@@ -1,9 +1,22 @@
 [package]
 name = "zeeland"
 description = "A painless HTTP bridge generator"
-version = "0.1.0"
-edition = "2021"
-license = "Apache-2.0 OR MIT"
-repository = "https://github.com/dnbln/zeeland"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+rocket = { version = "0.5.0", features = ["json"] }
+zeeland-derive.workspace = true
+
+[workspace]
+members = ["zeeland-derive"]
+package.version = "0.1.0"
+package.license = "Apache-2.0 OR MIT"
+package.edition = "2021"
+package.repository = "https://github.com/dnbln/zeeland"
+
+[workspace.dependencies]
+zeeland-derive = { path = "zeeland-derive" }
