@@ -62,6 +62,7 @@ struct RouteDef {
     args: Vec<Arg>,
     ret_ty: syn::ReturnType,
     req_body: ReqBodyKind,
+    asyncness: bool,
 }
 
 fn http_method_from_prefix(prefix: &str) -> Option<HttpMethod> {
@@ -319,6 +320,7 @@ source."#,
         args,
         ret_ty: f.sig.output.clone(),
         req_body,
+        asyncness: f.sig.asyncness.is_some(),
     })
 }
 
@@ -515,7 +517,7 @@ fn create_rocket_route(
             extra_rocket_attributes.extend(quote! {
                 format = "json", data = "<__body>",
             });
-        },
+        }
         ReqBodyInfo::JsonWholeBody { ty_name, inner_ty } => {
             extra_decls.extend(quote! {
                 #[derive(rocket::serde::Deserialize)]
@@ -523,7 +525,7 @@ fn create_rocket_route(
                 #[serde(transparent)]
                 struct #ty_name(#inner_ty);
             });
-        },
+        }
         _ => {}
     }
 
@@ -533,15 +535,20 @@ fn create_rocket_route(
     let unwrapped_api_type = unwrap_expr(&api_param_name);
 
     let api_route_name = format_ident!("__zeeland_{name}");
+    let async_trail_await = if rd.asyncness {
+        quote! { .await }
+    } else {
+        quote! {}
+    };
 
     Ok((
         quote! {
             #extra_decls
 
             #[rocket::#method(#path, #extra_rocket_attributes)]
-            fn #api_route_name(#api_param_name: &rocket::State<#api_impl_type>, #rocket_args) #ret_ty {
+            async fn #api_route_name(#api_param_name: &rocket::State<#api_impl_type>, #rocket_args) #ret_ty {
                 #handler_pre
-                #unwrapped_api_type.#name(#args_values_list)
+                #unwrapped_api_type.#name(#args_values_list) #async_trail_await
             }
         },
         api_route_name,
@@ -580,13 +587,11 @@ fn derive_impl(input: syn::ItemTrait) -> syn::Result<TokenStream> {
 
             // remove zeeland attributes from the function
             let mut f = f.clone();
-            f.sig.inputs.iter_mut().for_each(|input| {
-                match input {
-                    syn::FnArg::Typed(arg) => {
-                        arg.attrs.retain(|attr| !attr.path().is_ident("zeeland"));
-                    }
-                    _ => {}
+            f.sig.inputs.iter_mut().for_each(|input| match input {
+                syn::FnArg::Typed(arg) => {
+                    arg.attrs.retain(|attr| !attr.path().is_ident("zeeland"));
                 }
+                syn::FnArg::Receiver(_) => {}
             });
 
             fns.push(f);
@@ -604,6 +609,7 @@ fn derive_impl(input: syn::ItemTrait) -> syn::Result<TokenStream> {
     let vis = &input.vis;
 
     let mut result = quote! {
+        #[::zeeland::async_trait]
         #vis trait #name: Send + Sync + 'static {
             #(
                 #fns
