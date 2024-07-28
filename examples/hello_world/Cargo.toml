@@ -10,3 +10,4 @@ zeeland.workspace = true
 rocket = { version = "0.5.0", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 reqwest = { version = "0.12", features = ["json"] }
+thiserror = "1"

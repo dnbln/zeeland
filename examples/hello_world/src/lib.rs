@@ -1,7 +1,7 @@
 #[zeeland::zeeland]
 pub trait Api {
     async fn post(n: String) -> String {
-        format!("Hello, {n}!")
+        Ok(format!("Hello, {n}!"))
     }
 }
 
@@ -10,22 +10,29 @@ struct Api_client {
     root: String,
 }
 
+#[derive(Debug, thiserror::Error)]
+enum ClientError {
+    #[error("reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
+}
+
 #[zeeland::async_trait]
 impl Api for Api_client {
-    async fn post(&self, n: String) -> String {
+    type Error = ClientError;
+
+    async fn post(&self, n: String) -> Result<String, ClientError> {
         #[derive(serde::Serialize)]
         struct Body {
             n: String,
         }
 
-        self.client
+        Ok(self.client
             .post(&format!("{}/post", self.root))
             .json(&Body { n })
             .send()
-            .await
-            .unwrap()
+            .await?
+            .error_for_status()?
             .text()
-            .await
-            .unwrap()
+            .await?)
     }
 }

@@ -1,4 +1,5 @@
 pub extern crate serde;
+pub extern crate thiserror;
 
 pub use zeeland_derive::zeeland;
 pub use async_trait::async_trait;

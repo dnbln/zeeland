@@ -143,6 +143,7 @@ zeeland = {zeeland_spec}
             r#"
 #![allow(unused_imports)]
 use {dep_name}::{{{make_server_impls_macro_name}, {rocket_macro_name}, {trait_path_in_crate}}};
+use zeeland::thiserror;
 
 {make_server_impls_macro_name}!();
 {rocket_macro_name}!();

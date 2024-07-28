@@ -403,6 +403,7 @@ fn push_field(fields: &mut syn::Fields, field: syn::Field) {
 
 fn create_rocket_route(
     api_impl_type: &syn::Ident,
+    error_ty: syn::Type,
     rd: &RouteDef,
     unwrap_expr: impl Fn(&syn::Ident) -> TokenStream,
 ) -> syn::Result<(TokenStream, Ident)> {
@@ -539,7 +540,12 @@ fn create_rocket_route(
         _ => {}
     }
 
-    let ret_ty = &rd.ret_ty;
+    let ret_ty = match &rd.ret_ty {
+        syn::ReturnType::Type(_, ty) => (**ty).clone(),
+        syn::ReturnType::Default => parse_quote! {()},
+    };
+
+    let ret_ty: syn::ReturnType = parse_quote! {-> ::core::result::Result<#ret_ty, #error_ty>};
 
     let api_param_name = format_ident!("__api");
     let unwrapped_api_type = unwrap_expr(&api_param_name);
@@ -603,6 +609,14 @@ fn derive_impl(input: syn::ItemTrait) -> syn::Result<TokenStream> {
             if f.sig.asyncness.is_none() {
                 f.sig.asyncness = Some(parse_quote! {async});
             }
+
+            let ret_ty = match &f.sig.output {
+                syn::ReturnType::Type(_, ty) => (**ty).clone(),
+                syn::ReturnType::Default => parse_quote! {()},
+            };
+
+            f.sig.output = parse_quote! {-> ::core::result::Result<#ret_ty, Self::Error>};
+
             impl_fns.push(f.clone());
             f.default = None;
 
@@ -621,9 +635,13 @@ fn derive_impl(input: syn::ItemTrait) -> syn::Result<TokenStream> {
     let impl_wrapper_name = format_ident!("{}_impl_wrapper", name);
     let vis = &input.vis;
 
+    let other_err: syn::Type = parse_quote! {Error};
+
     let mut result = quote! {
         #[::zeeland::async_trait]
         #vis trait #name: Send + Sync + 'static {
+            type Error: ::std::error::Error + Send + Sync + 'static;
+
             #(
                 #fns
             )*
@@ -632,18 +650,44 @@ fn derive_impl(input: syn::ItemTrait) -> syn::Result<TokenStream> {
         #[macro_export]
         macro_rules! #make_server_impls_macro_name {
             () => {
+                #[derive(::zeeland::thiserror::Error, Debug)]
+                #[error("internal error")]
+                struct #other_err;
+
+                impl<'r, 'o: 'r> rocket::response::Responder<'r, 'o> for #other_err {
+                    fn respond_to(self, _: &'r rocket::Request) -> rocket::response::Result<'o> {
+                        Err(rocket::http::Status::InternalServerError)
+                    }
+                }
+
+                #[derive(::zeeland::thiserror::Error, Debug)]
+                enum __zeeland_Error {
+                    #[error("other error: {0}")]
+                    Other(#[from] #other_err),
+                }
+
+                impl<'r, 'o: 'r> rocket::response::Responder<'r, 'o> for __zeeland_Error where #other_err: rocket::response::Responder<'r, 'o> {
+                    fn respond_to(self, req: &'r rocket::Request) -> rocket::response::Result<'o> {
+                        match self {
+                            __zeeland_Error::Other(other) => other.respond_to(req),
+                        }
+                    }
+                }
+
                 #[allow(non_camel_case_types)]
                 struct #impl_name;
 
                 #[::zeeland::async_trait]
                 impl #name for #impl_name {
+                    type Error = __zeeland_Error;
+
                     #(
                         #impl_fns
                     )*
                 }
 
                 #[allow(non_camel_case_types)]
-                struct #impl_wrapper_name(pub Box<dyn #name>);
+                struct #impl_wrapper_name(pub Box<dyn #name<Error=__zeeland_Error>>);
             };
         }
     };
@@ -654,7 +698,7 @@ fn derive_impl(input: syn::ItemTrait) -> syn::Result<TokenStream> {
 
     for route in &routes {
         let (route_impl, name) =
-            create_rocket_route(&impl_wrapper_name, route, |name| quote! {#name.0})?;
+            create_rocket_route(&impl_wrapper_name, parse_quote!{<#impl_name as #name>::Error}, route, |name| quote! {#name.0})?;
         rocket_code.extend(route_impl);
         routes_list.push(name);
     }

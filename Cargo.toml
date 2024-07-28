@@ -10,6 +10,7 @@ repository.workspace = true
 serde = { version = "1", features = ["derive"] }
 async-trait = "0.1"
 zeeland-derive.workspace = true
+thiserror = "1"
 
 [workspace]
 members = ["cargo-zeeland", "examples/hello_world", "zeeland-derive"]
