@@ -12,7 +12,7 @@ async-trait = "0.1"
 zeeland-derive.workspace = true
 
 [workspace]
-members = ["zeeland-derive"]
+members = ["cargo-zeeland", "examples/hello_world", "zeeland-derive"]
 package.version = "0.1.0"
 package.license = "Apache-2.0 OR MIT"
 package.edition = "2021"
@@ -20,6 +20,7 @@ package.repository = "https://github.com/dnbln/zeeland"
 
 [workspace.dependencies]
 zeeland-derive = { path = "zeeland-derive" }
+zeeland = { path = "." }
 
 [dev-dependencies]
 rocket = { version = "0.5.0", features = ["json"] }

@@ -617,24 +617,38 @@ fn derive_impl(input: syn::ItemTrait) -> syn::Result<TokenStream> {
         }
 
         #[allow(non_camel_case_types)]
-        struct #impl_name;
+        #vis struct #impl_name;
 
         #[allow(non_camel_case_types)]
-        struct #impl_wrapper_name(Box<dyn #name>);
+        #vis struct #impl_wrapper_name(pub Box<dyn #name>);
     };
+
+    let mut rocket_code = quote! {};
 
     let mut routes_list = vec![];
 
     for route in &routes {
         let (route_impl, name) =
             create_rocket_route(&impl_wrapper_name, route, |name| quote! {#name.0})?;
-        result.extend(route_impl);
+        rocket_code.extend(route_impl);
         routes_list.push(name);
     }
 
-    result.extend(quote! {
-        fn create_rocket() -> rocket::Rocket<rocket::Build> {
+    rocket_code.extend(quote! {
+        #[rocket::launch]
+        fn rocket() -> _ {
             rocket::build().mount("/", rocket::routes![#(#routes_list),*]).manage(#impl_wrapper_name(Box::new(#impl_name)))
+        }
+    });
+
+    let macro_name = format_ident!("{}_rocket", name);
+
+    result.extend(quote! {
+        #[macro_export]
+        macro_rules! #macro_name {
+            () => {
+                #rocket_code
+            };
         }
     });
 

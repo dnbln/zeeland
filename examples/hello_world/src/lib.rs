@@ -1,5 +1,5 @@
 #[zeeland::zeeland]
-trait Api {
+pub trait Api {
     async fn post(&self, n: String) -> String;
 }
 
@@ -10,12 +10,7 @@ impl Api for Api_impl {
     }
 }
 
-#[rocket::launch]
-fn rocket() -> _ {
-    create_rocket()
-}
-
-pub struct Api_client {
+struct Api_client {
     client: reqwest::Client,
     root: String,
 }
