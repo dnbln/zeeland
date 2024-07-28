@@ -28,9 +28,8 @@ impl FromStr for ZeelandApiLocation {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut parts = s.splitn(2, ':');
-        let crate_path = parts.next().unwrap();
-        let trait_path_in_crate = parts.next().unwrap();
+        let (crate_path, trait_path_in_crate) =
+            s.split_once(':').ok_or(anyhow::anyhow!("Invalid format"))?;
 
         Ok(Self {
             crate_path: crate_path.into(),
@@ -128,10 +127,10 @@ zeeland = {zeeland_spec}
         )?;
     }
 
-    let macro_name = format!(
-        "{}_rocket",
-        api.trait_path_in_crate.split("::").last().unwrap()
-    );
+    let api_trait_name = api.trait_path_in_crate.split("::").last().unwrap();
+
+    let rocket_macro_name = format!("{api_trait_name}_rocket",);
+    let make_server_impls_macro_name = format!("{api_trait_name}_make_server_impls",);
 
     let trait_path_in_crate = &api.trait_path_in_crate;
     let dep_name = get_dep_name(&api.crate_path)?;
@@ -143,11 +142,13 @@ zeeland = {zeeland_spec}
         format!(
             r#"
 #![allow(unused_imports)]
-use {dep_name}::{{{macro_name}, {trait_path_in_crate}, {trait_path_in_crate}_impl, {trait_path_in_crate}_impl_wrapper}};
+use {dep_name}::{{{make_server_impls_macro_name}, {rocket_macro_name}, {trait_path_in_crate}}};
 
-{macro_name}!();
+{make_server_impls_macro_name}!();
+{rocket_macro_name}!();
 "#
-        ).trim_start(),
+        )
+        .trim_start(),
     )?;
 
     Ok(())

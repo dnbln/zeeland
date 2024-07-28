@@ -1,11 +1,6 @@
 #[zeeland::zeeland]
 pub trait Api {
-    async fn post(&self, n: String) -> String;
-}
-
-#[zeeland::async_trait]
-impl Api for Api_impl {
-    async fn post(&self, n: String) -> String {
+    async fn post(n: String) -> String {
         format!("Hello, {n}!")
     }
 }

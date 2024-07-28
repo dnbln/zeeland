@@ -62,7 +62,7 @@ struct RouteDef {
     args: Vec<Arg>,
     ret_ty: syn::ReturnType,
     req_body: ReqBodyKind,
-    asyncness: bool,
+    impl_code: syn::Block,
 }
 
 fn http_method_from_prefix(prefix: &str) -> Option<HttpMethod> {
@@ -108,10 +108,17 @@ fn hash_str(s: &str) -> String {
 }
 
 fn convert_trait_fn_to_route_def(f: &TraitItemFn) -> syn::Result<RouteDef> {
-    if f.default.is_some() {
+    let Some(impl_code) = &f.default else {
         return Err(syn::Error::new_spanned(
             f,
-            "Zeeland trait associated functions cannot have default implementations",
+            "Zeeland trait associated functions must have default implementations",
+        ));
+    };
+
+    if f.sig.asyncness.is_none() {
+        return Err(syn::Error::new_spanned(
+            f,
+            "Zeeland trait associated functions must be async",
         ));
     }
 
@@ -130,7 +137,10 @@ fn convert_trait_fn_to_route_def(f: &TraitItemFn) -> syn::Result<RouteDef> {
 
     for (idx, arg) in f.sig.inputs.iter().enumerate() {
         let syn::FnArg::Typed(arg_pat) = arg else {
-            continue;
+            return Err(syn::Error::new_spanned(
+                arg,
+                "Zeeland trait associated functions cannot take self as a parameter",
+            ));
         };
 
         let key = match &*arg_pat.pat {
@@ -320,7 +330,7 @@ source."#,
         args,
         ret_ty: f.sig.output.clone(),
         req_body,
-        asyncness: f.sig.asyncness.is_some(),
+        impl_code: impl_code.clone(),
     })
 }
 
@@ -535,11 +545,6 @@ fn create_rocket_route(
     let unwrapped_api_type = unwrap_expr(&api_param_name);
 
     let api_route_name = format_ident!("__zeeland_{name}");
-    let async_trail_await = if rd.asyncness {
-        quote! { .await }
-    } else {
-        quote! {}
-    };
 
     Ok((
         quote! {
@@ -548,7 +553,7 @@ fn create_rocket_route(
             #[rocket::#method(#path, #extra_rocket_attributes)]
             async fn #api_route_name(#api_param_name: &rocket::State<#api_impl_type>, #rocket_args) #ret_ty {
                 #handler_pre
-                #unwrapped_api_type.#name(#args_values_list) #async_trail_await
+                #unwrapped_api_type.#name(#args_values_list).await
             }
         },
         api_route_name,
@@ -579,6 +584,7 @@ fn derive_impl(input: syn::ItemTrait) -> syn::Result<TokenStream> {
 
     let mut routes = vec![];
     let mut fns = vec![];
+    let mut impl_fns = vec![];
 
     for item in &input.items {
         if let syn::TraitItem::Fn(f) = item {
@@ -593,6 +599,12 @@ fn derive_impl(input: syn::ItemTrait) -> syn::Result<TokenStream> {
                 }
                 syn::FnArg::Receiver(_) => {}
             });
+            f.sig.inputs.insert(0, parse_quote!(&self));
+            if f.sig.asyncness.is_none() {
+                f.sig.asyncness = Some(parse_quote! {async});
+            }
+            impl_fns.push(f.clone());
+            f.default = None;
 
             fns.push(f);
         } else {
@@ -604,6 +616,7 @@ fn derive_impl(input: syn::ItemTrait) -> syn::Result<TokenStream> {
     }
     let name = &input.ident;
 
+    let make_server_impls_macro_name = format_ident!("{}_make_server_impls", name);
     let impl_name = format_ident!("{}_impl", name);
     let impl_wrapper_name = format_ident!("{}_impl_wrapper", name);
     let vis = &input.vis;
@@ -616,11 +629,23 @@ fn derive_impl(input: syn::ItemTrait) -> syn::Result<TokenStream> {
             )*
         }
 
-        #[allow(non_camel_case_types)]
-        #vis struct #impl_name;
+        #[macro_export]
+        macro_rules! #make_server_impls_macro_name {
+            () => {
+                #[allow(non_camel_case_types)]
+                struct #impl_name;
 
-        #[allow(non_camel_case_types)]
-        #vis struct #impl_wrapper_name(pub Box<dyn #name>);
+                #[::zeeland::async_trait]
+                impl #name for #impl_name {
+                    #(
+                        #impl_fns
+                    )*
+                }
+
+                #[allow(non_camel_case_types)]
+                struct #impl_wrapper_name(pub Box<dyn #name>);
+            };
+        }
     };
 
     let mut rocket_code = quote! {};
